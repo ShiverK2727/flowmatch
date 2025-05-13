@@ -1,0 +1,35 @@
+# DiT训练配置文件
+data:
+  base_dir: './data/ACDC'
+  image_size: 256      # 图像大小
+  batch_size: 12       # 批次大小
+  num_workers: 6      # 数据加载工作进程数
+  scale_to_neg1_pos1: true    # 是否进行Z标准化
+
+model:
+  type: 'DiT-B/2'      # 模型类型，可选: DiT-XL/2, DiT-XL/4, DiT-XL/8, DiT-L/2, DiT-L/4, DiT-L/8, DiT-B/2, DiT-B/4, DiT-B/8, DiT-S/2, DiT-S/4, DiT-S/8
+  learn_sigma: false   # 是否学习sigma
+  in_channels: 4      # 输入通道数
+  training_type: 'shortcut'  # 训练类型
+  vae_model_path: '/home/zz/app/Huggingface/models/sd-vae-ft-mse'  # VAE模型路径
+  learning_rate: 0.0001      # 学习率
+  image_save_name: 'log_images'  # 图像保存路径
+  denoise_timesteps: [1, 2, 4, 8, 16, 32, 128]  # 去噪时间步
+  denoise_timesteps_target: 128  # 目标去噪时间步
+  bootstrap_every: 8   # bootstrap频率
+
+training:
+  max_epochs: 20     # 最大训练轮数
+  num_sanity_val_steps: 1  # 训练前验证步数
+  check_val_every_n_epoch: 50  # 每多少轮进行一次验证
+  limit_val_batches: 1.0    # 验证时使用的batch比例或数量
+  checkpoint_every_n_epochs: 500  # 每多少轮保存一次检查点
+  save_top_k: -1       # 保存最好的k个检查点，-1表示保存所有
+  use_ema: true        # 是否使用EMA
+  ema_decay: 0.999     # EMA衰减率
+  log_every_n_steps: 50  # 每多少步记录一次日志
+  gradient_clip_val: 1.0  # 梯度裁剪值
+  accumulate_grad_batches: 1  # 梯度累积步数
+
+logging:
+  project_name: 'shortcut_model'  # WandB项目名称

@@ -1,0 +1,45 @@
+data:
+  data_dir: "./data/cifar10"  # CIFAR-10数据存储路径
+  batch_size: 64
+  num_workers: 4
+  image_size: 32  # CIFAR-10图像大小
+
+model:
+  type: "DiTNoVAE-B/2"  # 使用不需要VAE的DiT-B/2模型
+  input_size: 32  # 输入图像大小
+  in_channels: 3  # RGB图像
+  class_dropout_prob: 0.1
+  num_classes: 10  # CIFAR-10类别数
+  learn_sigma: false
+  learning_rate: 0.0001
+  training_type: "naive"
+  image_save_name: "log_images"
+
+  # 流匹配参数
+  denoise_timesteps: [1, 2, 4, 8, 16, 32, 64]  # 减少时间步数以加快训练
+  denoise_timesteps_target: 64
+  bootstrap_every: 8
+  bootstrap_dt_bias: 0
+  bootstrap_cfg: true
+  cfg_scale: 1.5
+  bootstrap_ema: false
+  eval_size: 8
+  force_t: -1
+  force_dt: -1
+
+trainer:
+  max_steps: 200000  # 总训练步数
+  check_val_every_n_epoch: 20  # 每个epoch验证一次
+  log_every_n_steps: 50
+  gradient_clip_val: 1.0
+  accumulate_grad_batches: 1
+  num_sanity_val_steps: 0
+  limit_val_batches: 0.2
+  every_n_train_steps: 10000  # 每5000步保存一次检查点
+  save_best_model: false
+  save_top_k: -1
+  use_ema: true
+  ema_decay: 0.999
+
+logging:
+  project_name: "cifar_dit" 
