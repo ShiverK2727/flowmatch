@@ -5,7 +5,7 @@ data:
   image_size: 32  # CIFAR-10图像大小
 
 model:
-  type: "DiTNoVAE-B/2"  # 使用不需要VAE的DiT-B/2模型
+  type: "DiT-B/2"  # 使用不需要VAE的DiT-B/2模型
   input_size: 32  # 输入图像大小
   in_channels: 3  # RGB图像
   class_dropout_prob: 0.1
@@ -14,10 +14,11 @@ model:
   learning_rate: 0.0001
   training_type: "naive"
   image_save_name: "log_images"
+  vae_model_path: null
 
   # 流匹配参数
-  denoise_timesteps: [1, 2, 4, 8, 16, 32, 64]  # 减少时间步数以加快训练
-  denoise_timesteps_target: 64
+  denoise_timesteps: [1, 4, 8, 16, 32, 64, 128, 256]  # 减少时间步数以加快训练
+  denoise_timesteps_target: 128
   bootstrap_every: 8
   bootstrap_dt_bias: 0
   bootstrap_cfg: true
@@ -42,4 +43,4 @@ trainer:
   ema_decay: 0.999
 
 logging:
-  project_name: "cifar_dit" 
+  project_name: "cifar_dit_novae_naive" 

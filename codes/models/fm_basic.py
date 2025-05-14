@@ -43,7 +43,6 @@ class BaseFlowMatching(pl.LightningModule):
             learning_rate=0.0001,
             weight_decay=0.1,
             learn_sigma=True,
-            lightning_mode=False,
             latent_shape=None,
             training_type="shortcut",
             vae_model_path=None,  # 如果为None则不使用VAE
@@ -87,7 +86,6 @@ class BaseFlowMatching(pl.LightningModule):
         self.force_dt = force_dt
 
         self.latent_shape = latent_shape
-        self.lightning_mode = lightning_mode
 
         # 初始化VAE（如果指定了vae_model_path）
         self.vae = None
@@ -434,170 +432,4 @@ class BaseFlowMatching(pl.LightningModule):
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay)
         return optimizer
-
-
-class BaseFlowMatchingNoVAE(BaseFlowMatching):
-    """
-    不需要VAE的流匹配模型基类
-    """
-    def __init__(
-            self,
-            in_channels=3,  # 默认3通道RGB图像
-            class_dropout_prob=0.1,
-            num_classes=1,
-            learning_rate=0.0001,
-            weight_decay=0.1,
-            learn_sigma=True,
-            training_type="shortcut",
-            image_save_path="log_images3",
-            denoise_timesteps=[1, 2, 4, 8, 16, 32, 128],
-            denoise_timesteps_target=128,
-            bootstrap_every=8,
-            bootstrap_dt_bias=0,
-            bootstrap_cfg=False,
-            cfg_scale=0.0,
-            bootstrap_ema=False,
-            eval_size=8,
-            force_t=-1,
-            force_dt=-1,
-    ):
-        super().__init__(
-            in_channels=in_channels,
-            class_dropout_prob=class_dropout_prob,
-            num_classes=num_classes,
-            learning_rate=learning_rate,
-            weight_decay=weight_decay,
-            learn_sigma=learn_sigma,
-            lightning_mode=False,  # 不使用VAE模式
-            latent_shape=None,  # 不需要latent shape
-            training_type=training_type,
-            vae_model_path=None,  # 不需要VAE模型路径
-            image_save_path=image_save_path,
-            denoise_timesteps=denoise_timesteps,
-            denoise_timesteps_target=denoise_timesteps_target,
-            bootstrap_every=bootstrap_every,
-            bootstrap_dt_bias=bootstrap_dt_bias,
-            bootstrap_cfg=bootstrap_cfg,
-            cfg_scale=cfg_scale,
-            bootstrap_ema=bootstrap_ema,
-            eval_size=eval_size,
-            force_t=force_t,
-            force_dt=force_dt,
-        )
-
-    def training_step(self, batch, batch_idx):
-        images, labels = batch
-        latents = images  # 直接使用图像，不需要VAE编码
-
-        if self.training_type == "naive":
-            x_t, v_t, t, dt_base, labels_dropped, info_t = self.create_targets_naive(latents, labels)
-        elif self.training_type == "shortcut":
-            x_t, v_t, t, dt_base, labels_dropped, info_t = self.create_targets(latents, labels)
-
-        v_prime = self.forward(x_t, t, dt_base, labels)
-
-        # 计算损失
-        mse_v = torch.mean((v_prime - v_t) ** 2, dim=(1, 2, 3))
-        loss = torch.mean(mse_v)
-
-        # 收集指标
-        info = {
-            'loss': loss.item(),
-            'v_magnitude_prime': torch.sqrt(torch.mean(torch.square(v_prime))).item(),
-        }
-
-        # 添加bootstrap相关信息
-        if self.training_type == "shortcut":
-            bootstrap_size = images.shape[0] // self.bootstrap_every
-            info.update({
-                'loss_flow': torch.mean(mse_v[bootstrap_size:]).item(),
-                'loss_bootstrap': torch.mean(mse_v[:bootstrap_size]).item(),
-                **info_t
-            })
-
-        # 记录指标
-        self.log_dict({f'training/{k}': v for k, v in info.items()},
-                      on_step=True, on_epoch=True, sync_dist=True)
-        log_info(f"Training step {batch_idx} completed with info: {info}")
-
-        return loss
-
-    def validation_step(self, batch, batch_idx):
-        images, labels_real = batch
-        latents = images  # 直接使用图像，不需要VAE编码
-
-        # normalize to [0,255] range
-        images = 255 * ((images - torch.min(images)) / (torch.max(images) - torch.min(images) + 1e-8))
-
-        # sample noise
-        eps_i = torch.randn_like(latents).to(self.device)
-
-        # 计算验证损失
-        x_t, v_t, t, dt_base, labels_dropped, _ = self.create_targets_naive(latents, labels_real)
-        v_prime = self.forward(x_t, t, dt_base, labels_real)
-        val_loss = torch.mean((v_prime - v_t) ** 2)
-
-        # 确保验证损失被正确记录
-        self.log('val_loss', val_loss,
-                 on_step=False,
-                 on_epoch=True,
-                 sync_dist=True,
-                 prog_bar=True,
-                 logger=True)
-
-        for i, denoise_timesteps in enumerate(self.denoise_timesteps):
-            all_x = []
-            delta_t = 1.0 / denoise_timesteps
-
-            x = eps_i.to(self.device)
-
-            for ti in range(denoise_timesteps):
-                t = ti / denoise_timesteps
-                t_vector = torch.full((eps_i.shape[0],), t).to(self.device)
-                dt_base = torch.ones_like(t_vector).to(self.device) * math.log2(denoise_timesteps)
-
-                with torch.no_grad():
-                    v = self.forward(x, t_vector, dt_base, labels_real)
-
-                x = x + v * delta_t
-
-                # log 8 steps
-                if denoise_timesteps <= 8 or ti % (denoise_timesteps // 8) == 0 or ti == denoise_timesteps - 1:
-                    decoded = x  # 直接使用x，不需要VAE解码
-                    decoded = decoded.to("cpu")
-                    all_x.append(decoded)
-
-            if (len(all_x) == 9):
-                all_x = all_x[1:]
-
-            # estimate FID metric
-            decoded_denormalized = 255 * (
-                    (decoded - torch.min(decoded)) / (torch.max(decoded) - torch.min(decoded) + 1e-8))
-
-            # generated images
-            self.fids[i].update(images.to(torch.uint8).to(self.device), real=True)
-            self.fids[i].update(decoded_denormalized.to(torch.uint8).to(self.device), real=False)
-
-            # log only a single batch of generated images and only on first device
-            if self.trainer.is_global_zero and batch_idx == 0:
-                all_x = torch.stack(all_x)
-
-                def process_img(img):
-                    # normalize in range [0,1]
-                    img = img * 0.5 + 0.5
-                    img = torch.clip(img, 0, 1)
-                    img = img.permute(1, 2, 0)
-                    return img
-
-                fig, axs = plt.subplots(8, 8, figsize=(30, 30))
-                for t in range(min(8, all_x.shape[0])):
-                    for j in range(8):
-                        axs[t, j].imshow(process_img(all_x[t, j]), vmin=0, vmax=1)
-
-                fig.savefig(f"{self.image_save_path}/"
-                            f"epoch:{self.trainer.current_epoch}_denoise_timesteps:{denoise_timesteps}.png")
-                self.logger.experiment.log({f"denoise_timesteps:{denoise_timesteps}": [wandb.Image(fig)]})
-                plt.close()
-        return 0
-
-
+    

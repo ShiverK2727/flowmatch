@@ -1,0 +1,1 @@
+ python codes/train_cifar_dit.py --configs codes/configs/cifar_dit_novae_naive_config.yml --gpus 1 --exp ./exp/cifar/cifar_dit_novae_naive_200000/
